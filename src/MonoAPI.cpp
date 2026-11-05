@@ -1,5 +1,4 @@
 #include "MonoAPI.h"
-#include <iostream>
 
 void* (*mono_get_root_domain)() = nullptr;
 void* (*mono_thread_attach)(void*) = nullptr;
@@ -12,8 +11,6 @@ void* (*mono_object_get_class)(void*) = nullptr;
 int   (*mono_array_length)(void*) = nullptr;
 void* (*mono_array_addr)(void*, int) = nullptr;
 void* (*mono_object_unbox)(void*) = nullptr;
-
-// --- Новые указатели ---
 void* (*mono_class_get_field_from_name)(void*, const char*) = nullptr;
 int   (*mono_field_get_offset)(void*) = nullptr;
 
@@ -21,10 +18,7 @@ bool InitMono() {
     HMODULE hMono = GetModuleHandleA("mono.dll");
     if (!hMono) {
         hMono = LoadLibraryA("mono.dll");
-        if (!hMono) {
-            MessageBoxA(0, "mono.dll not found!", "Error", MB_ICONERROR);
-            return false;
-        }
+        if (!hMono) return false;
     }
 
     mono_get_root_domain = (decltype(mono_get_root_domain))GetProcAddress(hMono, "mono_get_root_domain");
@@ -38,10 +32,8 @@ bool InitMono() {
     mono_array_length = (decltype(mono_array_length))GetProcAddress(hMono, "mono_array_length");
     mono_array_addr = (decltype(mono_array_addr))GetProcAddress(hMono, "mono_array_addr_with_size");
     mono_object_unbox = (decltype(mono_object_unbox))GetProcAddress(hMono, "mono_object_unbox");
-
-    // --- Загружаем новые функции ---
     mono_class_get_field_from_name = (decltype(mono_class_get_field_from_name))GetProcAddress(hMono, "mono_class_get_field_from_name");
     mono_field_get_offset = (decltype(mono_field_get_offset))GetProcAddress(hMono, "mono_field_get_offset");
 
-    return mono_get_root_domain != nullptr && mono_class_from_name != nullptr;
+    return mono_get_root_domain && mono_class_from_name;
 }
