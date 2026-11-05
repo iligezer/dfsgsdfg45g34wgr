@@ -3,7 +3,9 @@ project(UnityMonoResearch)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Ищем только ImGui через vcpkg
+# Устанавливаем кодировку Multi-byte для Windows
+add_compile_definitions(_MBCS)
+
 find_package(imgui CONFIG REQUIRED)
 
 add_library(UnityMonoResearch SHARED
@@ -13,7 +15,6 @@ add_library(UnityMonoResearch SHARED
     src/Overlay.cpp
 )
 
-# Линкуем ImGui и стандартную библиотеку DirectX 11 (она уже есть в Windows SDK)
 target_link_libraries(UnityMonoResearch PRIVATE 
     imgui::imgui 
     d3d11
