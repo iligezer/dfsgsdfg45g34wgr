@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 project(UnityMonoResearch)
 
-set(CMAKE_CXX_STANDARD 17)
+# Принудительно ставим 32-битную архитектуру
+set(CMAKE_GENERATOR_PLATFORM "Win32" CACHE STRING "" FORCE)
 
-# Устанавливаем кодировку Multi-byte для Windows
+set(CMAKE_CXX_STANDARD 17)
 add_compile_definitions(_MBCS)
 
 find_package(imgui CONFIG REQUIRED)
