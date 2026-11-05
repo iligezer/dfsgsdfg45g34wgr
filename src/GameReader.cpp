@@ -36,8 +36,7 @@ std::vector<PlayerInfo> GetPlayers() {
     void* getPos    = mono_class_get_method_from_name(transformClass, "get_position", 0);
 
     for (int i = 0; i < len; i++) {
-        // Для 32-битной игры шаг массива 4 байта. Заголовок массива обычно 0x10 (длина) и 0x14 (данные)
-        // Если не работает, попробуй 0x20 + i * 8 (для 64-бит)
+        // 32-bit array data offset (0x10 header + i * 4)
         void* player = *(void**)((char*)arr + 0x10 + i * 4); 
         if (!player) continue;
 

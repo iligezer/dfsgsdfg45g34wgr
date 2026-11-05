@@ -8,7 +8,6 @@
 static std::ofstream g_log;
 
 static void MainThread() {
-    // Жестко заданный путь к лог-файлу
     g_log.open("C:\\Users\\Unknown\\Desktop\\Новая папка (8)\\КОК.txt", std::ios::out | std::ios::trunc);
     if (!g_log.is_open()) return;
 
