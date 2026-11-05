@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <thread>
 #include <string>
+#include <fstream>   // <-- Вот этой строки не хватало!
 #include "MonoAPI.h"
 #include "Overlay.h"
 
