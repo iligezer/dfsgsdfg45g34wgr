@@ -6,13 +6,13 @@
 
 std::ofstream g_log("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
 
-// Глобальные указатели на классы
-static void* klassLocalPlayerManager = nullptr;
+// Глобальные указатели
 static void* klassCombatPlayer = nullptr;
 static void* klassTransform = nullptr;
+static void* klassCamera = nullptr;
 
 void InitClasses() {
-    if (klassLocalPlayerManager) return;
+    if (klassCombatPlayer) return;
     void* domain = mono_get_root_domain();
     if (!domain) return;
     mono_thread_attach(domain);
@@ -21,76 +21,33 @@ void InitClasses() {
     if (!assembly) return;
     void* image = mono_assembly_get_image(assembly);
 
-    klassLocalPlayerManager = mono_class_from_name(image, "", "LocalPlayerManager");
     klassCombatPlayer = mono_class_from_name(image, "", "CombatPlayer");
 
     void* unityAssembly = mono_domain_assembly_open(domain, "UnityEngine");
     if (unityAssembly) {
         void* unityImage = mono_assembly_get_image(unityAssembly);
         klassTransform = mono_class_from_name(unityImage, "UnityEngine", "Transform");
+        klassCamera = mono_class_from_name(unityImage, "UnityEngine", "Camera");
     }
 }
 
 // Функция для получения имени Transform
 std::string GetTransformName(void* transformObj, void* exception) {
     if (!transformObj || !klassTransform) return "";
-
-    // Получаем класс Transform
     void* klass = mono_object_get_class(transformObj);
     if (!klass) return "";
-
-    // Вызываем get_name() (наследуется от UnityEngine.Object)
     void* getName = mono_class_get_method_from_name(klass, "get_name", 0);
     if (!getName) return "";
-
     MonoObject* nameObj = (MonoObject*)mono_runtime_invoke(getName, transformObj, nullptr, &exception);
     if (!nameObj) return "";
-
-    // Конвертируем MonoString в char*
     char* nameStr = mono_string_to_utf8(nameObj);
     if (!nameStr) return "";
-
-    std::string result(nameStr);
-    return result;
+    return std::string(nameStr);
 }
 
-void FindHeadBone() {
-    InitClasses();
-    if (!klassLocalPlayerManager || !klassCombatPlayer || !klassTransform) {
-        g_log << "[-] Classes not found" << std::endl;
-        return;
-    }
-
-    void* domain = mono_get_root_domain();
-    mono_thread_attach(domain);
+// Поиск головы через Biped
+void FindHeadBone(void* localPlayer) {
     void* exception = nullptr;
-
-    // 1. Получаем LocalPlayerManager.Instance
-    void* getInstance = mono_class_get_method_from_name(klassLocalPlayerManager, "get_Instance", 0);
-    if (!getInstance) {
-        g_log << "[-] get_Instance not found" << std::endl;
-        return;
-    }
-    void* manager = mono_runtime_invoke(getInstance, nullptr, nullptr, &exception);
-    if (!manager) {
-        g_log << "[-] Manager is null (not in game)" << std::endl;
-        return;
-    }
-
-    // 2. Получаем LocalPlayer
-    void* fieldLocalPlayer = mono_class_get_field_from_name(klassLocalPlayerManager, "LocalPlayer");
-    if (!fieldLocalPlayer) {
-        g_log << "[-] LocalPlayer field not found" << std::endl;
-        return;
-    }
-    void* localPlayer = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldLocalPlayer));
-    if (!localPlayer) {
-        g_log << "[-] LocalPlayer is null" << std::endl;
-        return;
-    }
-    g_log << "[+] LocalPlayer found!" << std::endl;
-
-    // 3. Получаем Biped (Transform скелета)
     void* getBiped = mono_class_get_method_from_name(klassCombatPlayer, "get_Biped", 0);
     if (!getBiped) {
         g_log << "[-] get_Biped not found" << std::endl;
@@ -103,44 +60,26 @@ void FindHeadBone() {
     }
     g_log << "[+] Biped found!" << std::endl;
 
-    // 4. Перебираем всех детей Biped и ищем голову
     void* getChildCount = mono_class_get_method_from_name(klassTransform, "get_childCount", 0);
-    if (!getChildCount) {
-        g_log << "[-] get_childCount not found" << std::endl;
-        return;
-    }
+    if (!getChildCount) return;
     MonoObject* countObj = (MonoObject*)mono_runtime_invoke(getChildCount, biped, nullptr, &exception);
     int childCount = 0;
-    if (countObj) {
-        childCount = *(int*)mono_object_unbox(countObj);
-    }
+    if (countObj) childCount = *(int*)mono_object_unbox(countObj);
     g_log << "[+] Biped has " << childCount << " children" << std::endl;
 
     void* getChild = mono_class_get_method_from_name(klassTransform, "GetChild", 1);
-    if (!getChild) {
-        g_log << "[-] GetChild not found" << std::endl;
-        return;
-    }
-
+    if (!getChild) return;
     void* getPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
-    if (!getPosition) {
-        g_log << "[-] get_position not found" << std::endl;
-        return;
-    }
+    if (!getPosition) return;
 
     for (int i = 0; i < childCount; i++) {
         void* args[1] = { &i };
         void* childObj = mono_runtime_invoke(getChild, biped, args, &exception);
         if (!childObj) continue;
-
         std::string name = GetTransformName(childObj, exception);
         g_log << "  Child[" << i << "]: " << name << std::endl;
-
-        // Ищем голову (может быть "Bip01 Head", "Bip001 Head", "Head")
         if (name.find("Head") != std::string::npos) {
             g_log << "[+] HEAD FOUND! Name: " << name << std::endl;
-
-            // Получаем позицию головы
             MonoObject* posObj = (MonoObject*)mono_runtime_invoke(getPosition, childObj, nullptr, &exception);
             if (posObj) {
                 Vector3* pos = (Vector3*)mono_object_unbox(posObj);
@@ -148,12 +87,71 @@ void FindHeadBone() {
             }
         }
     }
+}
 
-    g_log << "[+] Done searching children" << std::endl;
+void FindAllManagers() {
+    InitClasses();
+    if (!klassCombatPlayer) {
+        g_log << "[-] CombatPlayer class not found" << std::endl;
+        return;
+    }
+
+    void* domain = mono_get_root_domain();
+    mono_thread_attach(domain);
+    void* exception = nullptr;
+
+    void* assembly = mono_domain_assembly_open(domain, "Assembly-CSharp");
+    if (!assembly) return;
+    void* image = mono_assembly_get_image(assembly);
+
+    // Перебираем все классы в сборке
+    // В Mono API нет простого способа перебрать все классы, но мы можем использовать mono_image_get_table_info
+    // Для простоты мы просто попробуем известные классы
+    const char* candidateClasses[] = {
+        "LocalPlayerManager", "PlayerManager", "PlayerLocal", "LocalPlayer", "GameManager", "Main"
+    };
+
+    for (const char* className : candidateClasses) {
+        void* klass = mono_class_from_name(image, "", className);
+        if (!klass) continue;
+
+        void* getInstance = mono_class_get_method_from_name(klass, "get_Instance", 0);
+        if (!getInstance) continue;
+
+        void* manager = mono_runtime_invoke(getInstance, nullptr, nullptr, &exception);
+        if (!manager) {
+            g_log << "[-] " << className << ".Instance is null" << std::endl;
+            continue;
+        }
+        g_log << "[+] " << className << ".Instance found!" << std::endl;
+
+        // Пробуем найти LocalPlayer
+        void* fieldLocalPlayer = mono_class_get_field_from_name(klass, "LocalPlayer");
+        if (fieldLocalPlayer) {
+            void* localPlayer = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldLocalPlayer));
+            if (localPlayer) {
+                g_log << "[+] " << className << ".LocalPlayer found!" << std::endl;
+                FindHeadBone(localPlayer);
+            } else {
+                g_log << "[-] " << className << ".LocalPlayer is null" << std::endl;
+            }
+        }
+
+        // Пробуем найти Players (Dictionary)
+        void* fieldPlayers = mono_class_get_field_from_name(klass, "Players");
+        if (fieldPlayers) {
+            void* playersDict = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldPlayers));
+            if (playersDict) {
+                g_log << "[+] " << className << ".Players found!" << std::endl;
+                // Можно перебрать, но пока просто отметим
+            } else {
+                g_log << "[-] " << className << ".Players is null" << std::endl;
+            }
+        }
+    }
 }
 
 std::vector<PlayerData> GetPlayers() {
-    // Пока возвращаем пустой список, чтобы не ломать Overlay
     return {};
 }
 
@@ -162,4 +160,8 @@ Vector2 WorldToScreen(Vector3 worldPos) {
 }
 
 void AimAt(Vector3 targetPos) {
+}
+
+void FindHeadBone() {
+    FindAllManagers();
 }
