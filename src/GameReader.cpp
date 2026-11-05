@@ -20,35 +20,50 @@ std::vector<PlayerData> GetPlayers() {
     }
     void* image = mono_assembly_get_image(assembly);
 
-    // 2. Ищем PlayerManager
-    void* klassPlayerManager = mono_class_from_name(image, "", "PlayerManager");
-    if (!klassPlayerManager) {
-        g_log << "[-] PlayerManager class not found" << std::endl;
+    // 2. Ищем класс LocalPlayerManager
+    void* klassManager = mono_class_from_name(image, "", "LocalPlayerManager");
+    if (!klassManager) {
+        g_log << "[-] LocalPlayerManager class not found" << std::endl;
         return players;
     }
 
-    // 3. Получаем Instance
-    void* methodGetInstance = mono_class_get_method_from_name(klassPlayerManager, "get_Instance", 0);
+    // 3. Получаем статическое поле xh (это и есть Instance)
+    void* fieldInstance = mono_class_get_field_from_name(klassManager, "xh");
+    if (!fieldInstance) {
+        g_log << "[-] LocalPlayerManager.xh field not found" << std::endl;
+        return players;
+    }
+    
+    // Читаем значение статического поля. 
+    // В Mono для статических полей используется специальный объект (VTable), 
+    // но проще получить его через смещение.
+    // Обычно для статических полей смещение берется от начала статической области класса.
+    // Но mono_field_get_offset возвращает смещение внутри объекта, если бы он был экземпляром.
+    // Для статики нужно использовать mono_vtable_get_static_field_data.
+    // Но у нас нет этой функции в MonoAPI. Поэтому мы пойдем другим путем:
+    // Мы используем метод get_Instance(), который есть у класса.
+    
+    void* methodGetInstance = mono_class_get_method_from_name(klassManager, "get_Instance", 0);
     if (!methodGetInstance) {
-        g_log << "[-] PlayerManager.get_Instance not found" << std::endl;
+        g_log << "[-] LocalPlayerManager.get_Instance not found" << std::endl;
         return players;
     }
 
     void* exception = nullptr;
-    void* playerManager = mono_runtime_invoke(methodGetInstance, nullptr, nullptr, &exception);
-    if (!playerManager) {
-        g_log << "[-] PlayerManager.Instance is null" << std::endl;
+    void* manager = mono_runtime_invoke(methodGetInstance, nullptr, nullptr, &exception);
+    if (!manager) {
+        g_log << "[-] LocalPlayerManager.Instance is null" << std::endl;
         return players;
     }
 
     // 4. Получаем поле Players (Dictionary)
-    void* fieldPlayers = mono_class_get_field_from_name(klassPlayerManager, "Players");
+    void* fieldPlayers = mono_class_get_field_from_name(klassManager, "Players");
     if (!fieldPlayers) {
-        g_log << "[-] PlayerManager.Players field not found" << std::endl;
+        g_log << "[-] Players field not found" << std::endl;
         return players;
     }
     int playersOffset = mono_field_get_offset(fieldPlayers);
-    void* playersDictObj = *(void**)((uintptr_t)playerManager + playersOffset);
+    void* playersDictObj = *(void**)((uintptr_t)manager + playersOffset);
     if (!playersDictObj) {
         g_log << "[-] Players dictionary is null" << std::endl;
         return players;
@@ -128,10 +143,11 @@ std::vector<PlayerData> GetPlayers() {
         players.push_back(pData);
     }
 
-    g_log << "[+] Found " << players.size() << " players via Enumerator" << std::endl;
+    g_log << "[+] Found " << players.size() << " players via LocalPlayerManager" << std::endl;
     return players;
 }
 
+// Функция WorldToScreen (без изменений)
 Vector2 WorldToScreen(Vector3 worldPos, int screenWidth, int screenHeight) {
     Vector2 screenPos = { 0, 0 };
     void* domain = mono_get_root_domain();
