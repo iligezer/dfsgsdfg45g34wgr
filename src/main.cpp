@@ -1,20 +1,14 @@
 #include <windows.h>
 #include <thread>
 #include "MonoAPI.h"
-#include "GameReader.h"
 #include "Overlay.h"
 
 void MainThread() {
     Sleep(5000); 
     if (!InitMono()) return;
 
-    // Запускаем оверлей ImGui в отдельном потоке
+    // Запускаем оверлей в отдельном потоке
     std::thread overlayThread(StartOverlay);
-    
-    while (true) {
-        // Основной цикл (можно оставить пустым, так как GetPlayers вызывается внутри Overlay)
-        Sleep(100);
-    }
     overlayThread.join();
 }
 
