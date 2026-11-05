@@ -28,4 +28,7 @@ extern void* (*mono_object_unbox)(void*);
 extern void* (*mono_class_get_field_from_name)(void*, const char*);
 extern int   (*mono_field_get_offset)(void*);
 
+// --- ВОТ ЭТА ФУНКЦИЯ БЫЛА ПРОПУЩЕНА ---
+extern char* (*mono_string_to_utf8)(void*);
+
 bool InitMono();
