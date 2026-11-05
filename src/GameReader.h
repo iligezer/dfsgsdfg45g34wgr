@@ -7,7 +7,12 @@ struct PlayerData {
     std::string name;
     Vector3 position;
     Vector3 head;
+    int health;
+    int maxHealth;
+    int team;
+    bool isDead;
 };
 
 std::vector<PlayerData> GetPlayers();
-Vector2 WorldToScreen(Vector3 worldPos, int screenWidth, int screenHeight);
+Vector2 WorldToScreen(Vector3 worldPos);
+void AimAt(Vector3 targetPos);
