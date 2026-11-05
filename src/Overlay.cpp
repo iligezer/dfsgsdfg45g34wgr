@@ -5,7 +5,6 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-#include <iostream>
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -13,7 +12,6 @@ typedef HRESULT(__stdcall* Present_t)(IDXGISwapChain*, UINT, UINT);
 Present_t oPresent = nullptr;
 WNDPROC oWndProc = nullptr;
 
-// Настройки
 bool showMenu = true;
 bool espEnabled = true;
 bool espBox = true;
@@ -23,7 +21,6 @@ bool espDistance = true;
 bool espName = true;
 bool aimbotEnabled = false;
 float aimbotFov = 90.0f;
-bool aimbotKey = false;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -50,14 +47,12 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         init = true;
     }
 
-    // Обработка открытия меню по клавише '='
     if (GetAsyncKeyState(VK_OEM_PLUS) & 1) showMenu = !showMenu;
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-    // --- ЛОГИКА ESP ---
     auto players = GetPlayers();
     if (espEnabled) {
         ImDrawList* drawList = ImGui::GetBackgroundDrawList();
@@ -65,14 +60,12 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         float screenH = ImGui::GetIO().DisplaySize.y;
 
         for (const auto& p : players) {
-            if (p.isDead) continue; // Мёртвых не рисуем
+            if (p.isDead) continue;
 
             Vector2 screenPos = WorldToScreen(p.position);
             Vector2 headPos = WorldToScreen(p.head);
 
-            // Если игрок на экране
             if (screenPos.x > 0 && screenPos.x < screenW && screenPos.y > 0 && screenPos.y < screenH) {
-                // Бокс (простейший)
                 if (espBox) {
                     float boxHeight = abs(screenPos.y - headPos.y);
                     float boxWidth = boxHeight * 0.6f;
@@ -82,27 +75,18 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
                         IM_COL32(255, 255, 255, 255)
                     );
                 }
-
-                // Линия от центра к игроку
                 if (espLines) {
                     drawList->AddLine(ImVec2(screenW / 2, screenH), ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 255, 200), 1.0f);
                 }
-
-                // Здоровье
                 if (espHealth) {
                     char hpBuf[32];
                     sprintf_s(hpBuf, "HP: %d", p.health);
                     drawList->AddText(ImVec2(screenPos.x, headPos.y - 20), IM_COL32(0, 255, 0, 255), hpBuf);
                 }
-
-                // Имя
                 if (espName) {
                     drawList->AddText(ImVec2(screenPos.x, headPos.y - 35), IM_COL32(255, 255, 0, 255), p.name.c_str());
                 }
-
-                // Дистанция
                 if (espDistance) {
-                    // Упрощенно, просто выводим координаты
                     char distBuf[64];
                     sprintf_s(distBuf, "%.1f, %.1f, %.1f", p.position.x, p.position.y, p.position.z);
                     drawList->AddText(ImVec2(screenPos.x, screenPos.y + 5), IM_COL32(200, 200, 200, 255), distBuf);
@@ -111,7 +95,6 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         }
     }
 
-    // --- МЕНЮ ---
     if (showMenu) {
         ImGui::Begin("Cheat Menu", &showMenu, ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Text("Press '=' to toggle menu");
