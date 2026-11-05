@@ -13,6 +13,11 @@ struct PlayerData {
     bool isDead;
 };
 
+// Основные функции
 std::vector<PlayerData> GetPlayers();
 Vector2 WorldToScreen(Vector3 worldPos);
 void AimAt(Vector3 targetPos);
+void* GetLocalPlayerTransform();
+
+// Тестовая функция для поиска головы
+void FindHeadBone();
