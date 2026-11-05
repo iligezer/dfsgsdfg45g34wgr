@@ -1,6 +1,5 @@
 #include <windows.h>
 #include <thread>
-#include <fstream>
 #include "MonoAPI.h"
 #include "GameReader.h"
 #include "Overlay.h"
@@ -15,10 +14,11 @@ void MainThread() {
         return;
     }
 
-    // Тестовый вызов поиска головы
-    FindHeadBone();
+    // Запускаем поток команд
+    std::thread cmdThread(CommandThread);
+    cmdThread.detach();
 
-    // Запуск оверлея (меню + ESP)
+    // Запускаем оверлей (меню + ESP)
     std::thread overlayThread(StartOverlay);
     overlayThread.join();
 }
