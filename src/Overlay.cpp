@@ -2,175 +2,128 @@
 #include "GameReader.h"
 #include <d3d11.h>
 #include <dxgi.h>
+#include <dxgi1_2.h>
+#include <d3dcompiler.h>
+#include <dxgi.h>
+#include <dxgi1_2.h>
+#include <d3d11.h>
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 #include <fstream>
-#include <string>
 
 #pragma comment(lib, "d3d11.lib")
 
-ID3D11Device* g_pd3dDevice = nullptr;
-ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
-IDXGISwapChain* g_pSwapChain = nullptr;
-ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
-HWND g_hWnd = nullptr;
+// Указатели для хука
+typedef HRESULT(__stdcall* Present_t)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
+Present_t oPresent = nullptr;
+WNDPROC oWndProc = nullptr;
 
-// --- Настройки чита ---
 bool showESP = true;
 bool showLines = true;
 bool aimbotEnabled = false;
-float espColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Красный
+float espColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
 
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
+// Оригинальный WndProc
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
-    if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
-    return DefWindowProc(hWnd, msg, wParam, lParam);
+    return CallWindowProc(oWndProc, hWnd, msg, wParam, lParam);
 }
 
-bool CreateDeviceD3D(HWND hWnd) {
+// Хук Present
+HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
+    static bool init = false;
+    if (!init) {
+        // Получаем устройство и контекст
+        ID3D11Device* device = nullptr;
+        pSwapChain->GetDevice(__uuidof(ID3D11Device), (void**)&device);
+        ID3D11DeviceContext* context = nullptr;
+        device->GetImmediateContext(&context);
+
+        // Инициализация ImGui
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO(); (void)io;
+        ImGui::StyleColorsDark();
+        ImGui_ImplWin32_Init(GetActiveWindow());
+        ImGui_ImplDX11_Init(device, context);
+
+        // Хук на WndProc (для кликов)
+        oWndProc = (WNDPROC)SetWindowLongPtr(GetActiveWindow(), GWLP_WNDPROC, (LONG_PTR)WndProc);
+        init = true;
+    }
+
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    // --- ESP ЛОГИКА ---
+    auto players = GetPlayers();
+    if (showESP) {
+        ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+        for (const auto& p : players) {
+            Vector2 screenPos = WorldToScreen(p.position, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            Vector2 headPos = WorldToScreen(p.head, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            if (screenPos.x > 0 && screenPos.y > 0) {
+                char buf[128];
+                sprintf_s(buf, "Player: %s", p.name.c_str());
+                drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 0, 255), buf);
+                if (showLines) {
+                    drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
+                }
+            }
+        }
+    }
+
+    // Меню
+    ImGui::Begin("Cheat Menu");
+    ImGui::Checkbox("Enable ESP", &showESP);
+    ImGui::Checkbox("Show Lines", &showLines);
+    ImGui::Checkbox("Enable Aimbot", &aimbotEnabled);
+    ImGui::Text("Players found: %d", (int)players.size());
+    ImGui::End();
+
+    ImGui::Render();
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    return oPresent(pSwapChain, SyncInterval, Flags);
+}
+
+// Функция для создания хука
+void StartOverlay() {
+    // Создаем фиктивное устройство, чтобы получить указатель на Present
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"DX11Test", NULL };
+    RegisterClassEx(&wc);
+    HWND hWnd = CreateWindow(L"DX11Test", L"DX11Test", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
+
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.BufferCount = 2;
-    sd.BufferDesc.Width = 0;
-    sd.BufferDesc.Height = 0;
+    sd.BufferCount = 1;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator = 60;
-    sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hWnd;
     sd.SampleDesc.Count = 1;
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
+    ID3D11Device* d3dDevice = nullptr;
+    ID3D11DeviceContext* d3dContext = nullptr;
+    IDXGISwapChain* d3dSwapChain = nullptr;
     D3D_FEATURE_LEVEL featureLevel;
-    const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
-    if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
-        return false;
+    D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &sd, &d3dSwapChain, &d3dDevice, &featureLevel, &d3dContext);
 
-    ID3D11Texture2D* pBackBuffer;
-    g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-    g_pd3dDevice->CreateRenderTargetView(pBackBuffer, NULL, &g_mainRenderTargetView);
-    pBackBuffer->Release();
-    return true;
-}
+    // Получаем адрес Present из виртуальной таблицы
+    void** pVTable = *(void***)d3dSwapChain;
+    void* pPresent = pVTable[8]; // Present — 8-й индекс
 
-void CleanupDeviceD3D() {
-    if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; }
-    if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = NULL; }
-    if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = NULL; }
-    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
-}
+    // Устанавливаем хук
+    MH_Initialize();
+    MH_CreateHook(pPresent, &hkPresent, (void**)&oPresent);
+    MH_EnableHook(pPresent);
 
-void StartOverlay() {
-    // Настройка лог-файла
-    std::ofstream logFile("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
-    logFile << "=== Starting Overlay ===" << std::endl;
-
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "Overlay", NULL };
-    RegisterClassEx(&wc);
-    
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-
-    g_hWnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED, "Overlay", "Overlay", WS_POPUP, 0, 0, screenW, screenH, NULL, NULL, wc.hInstance, NULL);
-    SetLayeredWindowAttributes(g_hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
-    ShowWindow(g_hWnd, SW_SHOWDEFAULT);
-    UpdateWindow(g_hWnd);
-
-    if (!CreateDeviceD3D(g_hWnd)) {
-        logFile << "Failed to create D3D device!" << std::endl;
-        CleanupDeviceD3D();
-        UnregisterClass("Overlay", wc.hInstance);
-        return;
-    }
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplWin32_Init(g_hWnd);
-    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
-
-    bool done = false;
-    int frameCount = 0;
-    while (!done) {
-        MSG msg;
-        while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            if (msg.message == WM_QUIT) done = true;
-        }
-        if (done) break;
-
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
-
-        // --- ЛОГИКА ESP ---
-        auto players = GetPlayers();
-        
-        // Логируем каждые 100 кадров (чтобы не засрать диск)
-        if (frameCount % 100 == 0) {
-            logFile << "Frame " << frameCount << " | Players found: " << players.size() << std::endl;
-            if (players.size() > 0) {
-                logFile << "First player pos: " << players[0].position.x << ", " << players[0].position.y << ", " << players[0].position.z << std::endl;
-            }
-        }
-        frameCount++;
-
-        if (showESP) {
-            ImDrawList* drawList = ImGui::GetBackgroundDrawList();
-
-            for (const auto& p : players) {
-                Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
-                Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
-
-                if (screenPos.x > 0 && screenPos.y > 0 && screenPos.x < screenW && screenPos.y < screenH) {
-                    // Рисуем текст
-                    char buf[128];
-                    sprintf_s(buf, "Player: %s", p.name.c_str());
-                    drawList->AddText(ImVec2(screenPos.x, screenPos.y), ImGui::ColorConvertFloat4ToU32(*(ImVec4*)espColor), buf);
-
-                    // Рисуем линию от тела к голове
-                    if (showLines) {
-                        drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
-                    }
-                }
-            }
-        }
-
-        // --- МЕНЮ ---
-        ImGui::Begin("Cheat Menu");
-        ImGui::Text("ESP Settings");
-        ImGui::Checkbox("Enable ESP", &showESP);
-        ImGui::Checkbox("Show Lines", &showLines);
-        ImGui::Checkbox("Enable Aimbot", &aimbotEnabled);
-        ImGui::ColorEdit4("ESP Color", espColor);
-        ImGui::Text("Players found: %d", (int)players.size());
-        ImGui::End();
-        // -----------------
-
-        ImGui::Render();
-        const float clear_color_with_alpha[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
-        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-        g_pSwapChain->Present(1, 0);
-    }
-
-    logFile << "=== Overlay shutting down ===" << std::endl;
-    logFile.close();
-
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
-    CleanupDeviceD3D();
-    DestroyWindow(g_hWnd);
-    UnregisterClass("Overlay", wc.hInstance);
+    // Очистка фиктивного устройства
+    d3dSwapChain->Release();
+    d3dDevice->Release();
+    d3dContext->Release();
+    DestroyWindow(hWnd);
+    UnregisterClass(L"DX11Test", wc.hInstance);
 }
