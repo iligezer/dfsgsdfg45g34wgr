@@ -1,13 +1,12 @@
 #pragma once
 #include <windows.h>
 
-// Заглушка для MonoObject (нужна для unboxing)
+// Заглушка для MonoObject
 struct MonoObject {
     void* vtable;
     void* sync;
 };
 
-// Структура Vector3 для Unity
 struct Vector3 {
     float x, y, z;
 };
@@ -29,5 +28,8 @@ extern int   (*mono_array_length)(void*);
 extern void* (*mono_array_addr)(void*, int);
 extern void* (*mono_object_unbox)(void*);
 
-// Инициализация
+// --- Вот эти две функции мы забыли добавить! ---
+extern void* (*mono_class_get_field_from_name)(void*, const char*);
+extern int   (*mono_field_get_offset)(void*);
+
 bool InitMono();
