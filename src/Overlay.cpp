@@ -58,20 +58,20 @@ void CleanupDeviceD3D() {
 }
 
 void StartOverlay() {
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"Overlay", NULL };
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "Overlay", NULL };
     RegisterClassEx(&wc);
     
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
-    g_hWnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED, L"Overlay", L"Overlay", WS_POPUP, 0, 0, screenW, screenH, NULL, NULL, wc.hInstance, NULL);
+    g_hWnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED, "Overlay", "Overlay", WS_POPUP, 0, 0, screenW, screenH, NULL, NULL, wc.hInstance, NULL);
     SetLayeredWindowAttributes(g_hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
     ShowWindow(g_hWnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hWnd);
 
     if (!CreateDeviceD3D(g_hWnd)) {
         CleanupDeviceD3D();
-        UnregisterClass(L"Overlay", wc.hInstance);
+        UnregisterClass("Overlay", wc.hInstance);
         return;
     }
 
@@ -128,5 +128,5 @@ void StartOverlay() {
     ImGui::DestroyContext();
     CleanupDeviceD3D();
     DestroyWindow(g_hWnd);
-    UnregisterClass(L"Overlay", wc.hInstance);
+    UnregisterClass("Overlay", wc.hInstance);
 }
