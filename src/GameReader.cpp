@@ -1,164 +1,183 @@
 #include "GameReader.h"
 #include <iostream>
-#include <fstream>
-#include <vector>
-#include <string>
+#include <cmath>
 
-std::ofstream g_log("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
+// Глобальные указатели на классы, чтобы не искать их каждый кадр
+static void* klassLocalPlayerManager = nullptr;
+static void* klassCombatPlayer = nullptr;
+static void* klassCamera = nullptr;
+
+void InitClasses() {
+    if (klassLocalPlayerManager) return;
+    void* domain = mono_get_root_domain();
+    if (!domain) return;
+    mono_thread_attach(domain);
+
+    void* assembly = mono_domain_assembly_open(domain, "Assembly-CSharp");
+    if (!assembly) return;
+    void* image = mono_assembly_get_image(assembly);
+
+    klassLocalPlayerManager = mono_class_from_name(image, "", "LocalPlayerManager");
+    klassCombatPlayer = mono_class_from_name(image, "", "CombatPlayer");
+    
+    void* unityAssembly = mono_domain_assembly_open(domain, "UnityEngine");
+    if (unityAssembly) {
+        void* unityImage = mono_assembly_get_image(unityAssembly);
+        klassCamera = mono_class_from_name(unityImage, "UnityEngine", "Camera");
+    }
+}
 
 std::vector<PlayerData> GetPlayers() {
     std::vector<PlayerData> players;
+    InitClasses();
+    if (!klassLocalPlayerManager || !klassCombatPlayer) return players;
+
     void* domain = mono_get_root_domain();
-    if (!domain) return players;
     mono_thread_attach(domain);
-
-    // Загружаем Assembly-CSharp
-    void* assembly = mono_domain_assembly_open(domain, "Assembly-CSharp");
-    if (!assembly) {
-        g_log << "[-] Assembly-CSharp not found" << std::endl;
-        return players;
-    }
-    void* image = mono_assembly_get_image(assembly);
-
-    // Ищем LocalPlayerManager
-    void* klassManager = mono_class_from_name(image, "", "LocalPlayerManager");
-    if (!klassManager) {
-        g_log << "[-] LocalPlayerManager class not found" << std::endl;
-        return players;
-    }
-
-    // Получаем Instance через get_Instance()
-    void* methodGetInstance = mono_class_get_method_from_name(klassManager, "get_Instance", 0);
-    if (!methodGetInstance) {
-        g_log << "[-] get_Instance not found" << std::endl;
-        return players;
-    }
-
     void* exception = nullptr;
-    void* manager = mono_runtime_invoke(methodGetInstance, nullptr, nullptr, &exception);
-    if (!manager) {
-        g_log << "[-] Instance is null" << std::endl;
-        return players;
-    }
 
-    // Получаем поле Players
-    void* fieldPlayers = mono_class_get_field_from_name(klassManager, "Players");
-    if (!fieldPlayers) {
-        g_log << "[-] Players field not found" << std::endl;
-        return players;
-    }
-    int playersOffset = mono_field_get_offset(fieldPlayers);
-    void* playersDictObj = *(void**)((uintptr_t)manager + playersOffset);
-    if (!playersDictObj) {
-        g_log << "[-] Players dictionary is null" << std::endl;
-        return players;
-    }
+    // 1. Получаем Instance LocalPlayerManager
+    void* getInstance = mono_class_get_method_from_name(klassLocalPlayerManager, "get_Instance", 0);
+    if (!getInstance) return players;
+    void* manager = mono_runtime_invoke(getInstance, nullptr, nullptr, &exception);
+    if (!manager) return players;
 
-    // Получаем Values у Dictionary
-    void* klassDict = mono_object_get_class(playersDictObj);
-    void* methodGetValues = mono_class_get_method_from_name(klassDict, "get_Values", 0);
-    if (!methodGetValues) {
-        g_log << "[-] get_Values not found" << std::endl;
-        return players;
-    }
-    void* valuesCollection = mono_runtime_invoke(methodGetValues, playersDictObj, nullptr, &exception);
-    if (!valuesCollection) {
-        g_log << "[-] Values collection is null" << std::endl;
-        return players;
-    }
-
-    // Получаем Enumerator
-    void* klassCollection = mono_object_get_class(valuesCollection);
-    void* methodGetEnumerator = mono_class_get_method_from_name(klassCollection, "GetEnumerator", 0);
-    if (!methodGetEnumerator) {
-        g_log << "[-] GetEnumerator not found" << std::endl;
-        return players;
-    }
-    void* enumeratorObj = mono_runtime_invoke(methodGetEnumerator, valuesCollection, nullptr, &exception);
-    if (!enumeratorObj) {
-        g_log << "[-] Enumerator is null" << std::endl;
-        return players;
-    }
-
-    void* klassEnumerator = mono_object_get_class(enumeratorObj);
-    void* methodMoveNext = mono_class_get_method_from_name(klassEnumerator, "MoveNext", 0);
-    void* methodGetCurrent = mono_class_get_method_from_name(klassEnumerator, "get_Current", 0);
+    // 2. Получаем LocalPlayer и его команду
+    void* fieldLocalPlayer = mono_class_get_field_from_name(klassLocalPlayerManager, "LocalPlayer");
+    if (!fieldLocalPlayer) return players;
+    void* localPlayer = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldLocalPlayer));
     
-    if (!methodMoveNext || !methodGetCurrent) {
-        g_log << "[-] Enumerator methods not found" << std::endl;
-        return players;
+    int localTeam = -1;
+    if (localPlayer) {
+        void* getTeam = mono_class_get_method_from_name(klassCombatPlayer, "get_Team", 0);
+        if (getTeam) {
+            MonoObject* teamObj = (MonoObject*)mono_runtime_invoke(getTeam, localPlayer, nullptr, &exception);
+            if (teamObj) localTeam = *(int*)mono_object_unbox(teamObj);
+        }
     }
 
-    int playerIndex = 0;
+    // 3. Получаем Players (Dictionary)
+    void* fieldPlayers = mono_class_get_field_from_name(klassLocalPlayerManager, "Players");
+    if (!fieldPlayers) return players;
+    void* playersDict = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldPlayers));
+    if (!playersDict) return players;
+
+    // 4. Перебираем Dictionary через Enumerator
+    void* klassDict = mono_object_get_class(playersDict);
+    void* getValues = mono_class_get_method_from_name(klassDict, "get_Values", 0);
+    if (!getValues) return players;
+    void* values = mono_runtime_invoke(getValues, playersDict, nullptr, &exception);
+    if (!values) return players;
+
+    void* klassCollection = mono_object_get_class(values);
+    void* getEnumerator = mono_class_get_method_from_name(klassCollection, "GetEnumerator", 0);
+    if (!getEnumerator) return players;
+    void* enumerator = mono_runtime_invoke(getEnumerator, values, nullptr, &exception);
+    if (!enumerator) return players;
+
+    void* klassEnumerator = mono_object_get_class(enumerator);
+    void* moveNext = mono_class_get_method_from_name(klassEnumerator, "MoveNext", 0);
+    void* getCurrent = mono_class_get_method_from_name(klassEnumerator, "get_Current", 0);
+    if (!moveNext || !getCurrent) return players;
+
+    int index = 0;
     while (true) {
-        MonoObject* moveNextResult = (MonoObject*)mono_runtime_invoke(methodMoveNext, enumeratorObj, nullptr, &exception);
+        MonoObject* moveNextResult = (MonoObject*)mono_runtime_invoke(moveNext, enumerator, nullptr, &exception);
         if (!moveNextResult) break;
-        
         bool hasNext = *(bool*)mono_object_unbox(moveNextResult);
         if (!hasNext) break;
 
-        void* playerObj = mono_runtime_invoke(methodGetCurrent, enumeratorObj, nullptr, &exception);
+        void* playerObj = mono_runtime_invoke(getCurrent, enumerator, nullptr, &exception);
         if (!playerObj) continue;
 
         PlayerData pData;
-        pData.name = "Player_" + std::to_string(playerIndex);
-        playerIndex++;
-
-        void* klassPlayer = mono_object_get_class(playerObj);
+        pData.name = "Player_" + std::to_string(index++);
         
-        void* methodGetTransform = mono_class_get_method_from_name(klassPlayer, "get_transform", 0);
-        if (methodGetTransform) {
-            void* transformObj = mono_runtime_invoke(methodGetTransform, playerObj, nullptr, &exception);
+        // Получаем Transform и позицию
+        void* getTransform = mono_class_get_method_from_name(klassCombatPlayer, "get_transform", 0);
+        if (getTransform) {
+            void* transformObj = mono_runtime_invoke(getTransform, playerObj, nullptr, &exception);
             if (transformObj) {
                 void* klassTransform = mono_object_get_class(transformObj);
-                void* methodGetPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
-                if (methodGetPosition) {
-                    MonoObject* posObj = (MonoObject*)mono_runtime_invoke(methodGetPosition, transformObj, nullptr, &exception);
+                void* getPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
+                if (getPosition) {
+                    MonoObject* posObj = (MonoObject*)mono_runtime_invoke(getPosition, transformObj, nullptr, &exception);
                     if (posObj) {
                         Vector3* pos = (Vector3*)mono_object_unbox(posObj);
                         pData.position = *pos;
-                        pData.head = { pos->x, pos->y + 1.6f, pos->z };
+                        pData.head = { pos->x, pos->y + 1.6f, pos->z }; // Заглушка для головы
                     }
                 }
             }
         }
+
+        // Получаем данные игрока (HP, Team, IsDead)
+        void* getHealth = mono_class_get_method_from_name(klassCombatPlayer, "get_Health", 0);
+        if (getHealth) {
+            MonoObject* hpObj = (MonoObject*)mono_runtime_invoke(getHealth, playerObj, nullptr, &exception);
+            if (hpObj) pData.health = *(int*)mono_object_unbox(hpObj);
+        }
+        void* getMaxHealth = mono_class_get_method_from_name(klassCombatPlayer, "get_MaxHealth", 0);
+        if (getMaxHealth) {
+            MonoObject* maxHpObj = (MonoObject*)mono_runtime_invoke(getMaxHealth, playerObj, nullptr, &exception);
+            if (maxHpObj) pData.maxHealth = *(int*)mono_object_unbox(maxHpObj);
+        }
+        void* getTeam = mono_class_get_method_from_name(klassCombatPlayer, "get_Team", 0);
+        if (getTeam) {
+            MonoObject* teamObj = (MonoObject*)mono_runtime_invoke(getTeam, playerObj, nullptr, &exception);
+            if (teamObj) pData.team = *(int*)mono_object_unbox(teamObj);
+        }
+        void* getIsDead = mono_class_get_method_from_name(klassCombatPlayer, "get_IsDead", 0);
+        if (getIsDead) {
+            MonoObject* deadObj = (MonoObject*)mono_runtime_invoke(getIsDead, playerObj, nullptr, &exception);
+            if (deadObj) pData.isDead = *(bool*)mono_object_unbox(deadObj);
+        }
+        void* getName = mono_class_get_method_from_name(klassCombatPlayer, "get_Name", 0);
+        if (getName) {
+            MonoObject* nameObj = (MonoObject*)mono_runtime_invoke(getName, playerObj, nullptr, &exception);
+            if (nameObj) {
+                // Упрощенно, просто ставим имя по индексу
+                // Для реального чтения строки нужен mono_string_to_utf8
+            }
+        }
+
+        // Если команда локального игрока не определена, рисуем всех
+        pData.team = localTeam; // Упрощение: пока не рисуем врагов/союзников
+
         players.push_back(pData);
     }
-
-    g_log << "[+] Found " << players.size() << " players" << std::endl;
     return players;
 }
 
-// WorldToScreen (без изменений)
-Vector2 WorldToScreen(Vector3 worldPos, int screenWidth, int screenHeight) {
+Vector2 WorldToScreen(Vector3 worldPos) {
     Vector2 screenPos = { 0, 0 };
-    void* domain = mono_get_root_domain();
-    if (!domain) return screenPos;
-    mono_thread_attach(domain);
-
-    void* assembly = mono_domain_assembly_open(domain, "UnityEngine");
-    if (!assembly) return screenPos;
-    void* image = mono_assembly_get_image(assembly);
-    void* klassCamera = mono_class_from_name(image, "UnityEngine", "Camera");
     if (!klassCamera) return screenPos;
 
-    void* methodGetMain = mono_class_get_method_from_name(klassCamera, "get_main", 0);
-    if (!methodGetMain) return screenPos;
-
+    void* domain = mono_get_root_domain();
+    mono_thread_attach(domain);
     void* exception = nullptr;
-    void* mainCamera = mono_runtime_invoke(methodGetMain, nullptr, nullptr, &exception);
+
+    void* getMain = mono_class_get_method_from_name(klassCamera, "get_main", 0);
+    if (!getMain) return screenPos;
+    void* mainCamera = mono_runtime_invoke(getMain, nullptr, nullptr, &exception);
     if (!mainCamera) return screenPos;
 
-    void* methodW2S = mono_class_get_method_from_name(klassCamera, "WorldToScreenPoint", 1);
-    if (!methodW2S) return screenPos;
+    void* w2s = mono_class_get_method_from_name(klassCamera, "WorldToScreenPoint", 1);
+    if (!w2s) return screenPos;
 
     void* args[1] = { &worldPos };
-    MonoObject* resultObj = (MonoObject*)mono_runtime_invoke(methodW2S, mainCamera, args, &exception);
-    
+    MonoObject* resultObj = (MonoObject*)mono_runtime_invoke(w2s, mainCamera, args, &exception);
     if (resultObj) {
         Vector3* result = (Vector3*)mono_object_unbox(resultObj);
         screenPos.x = result->x;
-        screenPos.y = screenHeight - result->y;
+        screenPos.y = ImGui::GetIO().DisplaySize.y - result->y;
     }
     return screenPos;
+}
+
+void AimAt(Vector3 targetPos) {
+    // Логика аимбота: нужно получить позицию камеры и вычислить угол.
+    // Но для простоты мы просто перемещаем курсор мыши (это работает в оконном режиме).
+    // В полноэкранном режиме это не сработает. Нужно писать в память (transform.rotation).
+    // Пока оставим заглушку.
 }
