@@ -45,6 +45,46 @@ std::string GetTransformName(void* transformObj, void* exception) {
     return std::string(nameStr);
 }
 
+// Рекурсивный поиск головы
+void FindHeadBoneRecursive(void* transformObj, int depth, void* exception) {
+    if (!transformObj || depth > 10) return; // Ограничим глубину
+
+    std::string name = GetTransformName(transformObj, exception);
+    if (!name.empty()) {
+        g_log << std::string(depth * 2, ' ') << "Bone: " << name << std::endl;
+    }
+
+    // Если нашли голову — выводим позицию
+    if (name.find("Head") != std::string::npos) {
+        g_log << "[+] HEAD FOUND! Name: " << name << std::endl;
+        void* getPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
+        if (getPosition) {
+            MonoObject* posObj = (MonoObject*)mono_runtime_invoke(getPosition, transformObj, nullptr, &exception);
+            if (posObj) {
+                Vector3* pos = (Vector3*)mono_object_unbox(posObj);
+                g_log << "[+] Head position: " << pos->x << ", " << pos->y << ", " << pos->z << std::endl;
+            }
+        }
+    }
+
+    // Рекурсивно обходим детей
+    void* getChildCount = mono_class_get_method_from_name(klassTransform, "get_childCount", 0);
+    void* getChild = mono_class_get_method_from_name(klassTransform, "GetChild", 1);
+    if (!getChildCount || !getChild) return;
+
+    MonoObject* countObj = (MonoObject*)mono_runtime_invoke(getChildCount, transformObj, nullptr, &exception);
+    int childCount = 0;
+    if (countObj) childCount = *(int*)mono_object_unbox(countObj);
+
+    for (int i = 0; i < childCount; i++) {
+        void* args[1] = { &i };
+        void* childObj = mono_runtime_invoke(getChild, transformObj, args, &exception);
+        if (childObj) {
+            FindHeadBoneRecursive(childObj, depth + 1, exception);
+        }
+    }
+}
+
 // Поиск головы через Biped
 void FindHeadBone(void* localPlayer) {
     void* exception = nullptr;
@@ -58,35 +98,9 @@ void FindHeadBone(void* localPlayer) {
         g_log << "[-] Biped is null" << std::endl;
         return;
     }
-    g_log << "[+] Biped found!" << std::endl;
-
-    void* getChildCount = mono_class_get_method_from_name(klassTransform, "get_childCount", 0);
-    if (!getChildCount) return;
-    MonoObject* countObj = (MonoObject*)mono_runtime_invoke(getChildCount, biped, nullptr, &exception);
-    int childCount = 0;
-    if (countObj) childCount = *(int*)mono_object_unbox(countObj);
-    g_log << "[+] Biped has " << childCount << " children" << std::endl;
-
-    void* getChild = mono_class_get_method_from_name(klassTransform, "GetChild", 1);
-    if (!getChild) return;
-    void* getPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
-    if (!getPosition) return;
-
-    for (int i = 0; i < childCount; i++) {
-        void* args[1] = { &i };
-        void* childObj = mono_runtime_invoke(getChild, biped, args, &exception);
-        if (!childObj) continue;
-        std::string name = GetTransformName(childObj, exception);
-        g_log << "  Child[" << i << "]: " << name << std::endl;
-        if (name.find("Head") != std::string::npos) {
-            g_log << "[+] HEAD FOUND! Name: " << name << std::endl;
-            MonoObject* posObj = (MonoObject*)mono_runtime_invoke(getPosition, childObj, nullptr, &exception);
-            if (posObj) {
-                Vector3* pos = (Vector3*)mono_object_unbox(posObj);
-                g_log << "[+] Head position: " << pos->x << ", " << pos->y << ", " << pos->z << std::endl;
-            }
-        }
-    }
+    g_log << "[+] Biped found! Starting recursive search..." << std::endl;
+    FindHeadBoneRecursive(biped, 0, exception);
+    g_log << "[+] Recursive search done." << std::endl;
 }
 
 void FindAllManagers() {
@@ -104,9 +118,6 @@ void FindAllManagers() {
     if (!assembly) return;
     void* image = mono_assembly_get_image(assembly);
 
-    // Перебираем все классы в сборке
-    // В Mono API нет простого способа перебрать все классы, но мы можем использовать mono_image_get_table_info
-    // Для простоты мы просто попробуем известные классы
     const char* candidateClasses[] = {
         "LocalPlayerManager", "PlayerManager", "PlayerLocal", "LocalPlayer", "GameManager", "Main"
     };
@@ -151,6 +162,7 @@ void FindAllManagers() {
     }
 }
 
+// --- Заглушки для Overlay ---
 std::vector<PlayerData> GetPlayers() {
     return {};
 }
