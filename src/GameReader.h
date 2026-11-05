@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
-#include "MonoAPI.h"
+#include "MonoAPI.h" // <-- Убедимся, что подключено
 
 struct PlayerData {
     std::string name;
