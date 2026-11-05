@@ -17,7 +17,7 @@ jobs:
         git clone https://github.com/microsoft/vcpkg
         .\vcpkg\bootstrap-vcpkg.bat
         .\vcpkg\vcpkg integrate install
-        .\vcpkg\vcpkg install imgui[core,dx11-binding,win32-binding]:x86-windows
+        .\vcpkg\vcpkg install imgui[core,dx11-binding,win32-binding]:x86-windows minhook:x86-windows
         
     - name: Configure CMake
       run: |
