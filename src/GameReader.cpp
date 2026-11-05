@@ -2,7 +2,6 @@
 #include <iostream>
 #include <cmath>
 
-// Глобальные указатели на классы, чтобы не искать их каждый кадр
 static void* klassLocalPlayerManager = nullptr;
 static void* klassCombatPlayer = nullptr;
 static void* klassCamera = nullptr;
@@ -36,13 +35,11 @@ std::vector<PlayerData> GetPlayers() {
     mono_thread_attach(domain);
     void* exception = nullptr;
 
-    // 1. Получаем Instance LocalPlayerManager
     void* getInstance = mono_class_get_method_from_name(klassLocalPlayerManager, "get_Instance", 0);
     if (!getInstance) return players;
     void* manager = mono_runtime_invoke(getInstance, nullptr, nullptr, &exception);
     if (!manager) return players;
 
-    // 2. Получаем LocalPlayer и его команду
     void* fieldLocalPlayer = mono_class_get_field_from_name(klassLocalPlayerManager, "LocalPlayer");
     if (!fieldLocalPlayer) return players;
     void* localPlayer = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldLocalPlayer));
@@ -56,13 +53,11 @@ std::vector<PlayerData> GetPlayers() {
         }
     }
 
-    // 3. Получаем Players (Dictionary)
     void* fieldPlayers = mono_class_get_field_from_name(klassLocalPlayerManager, "Players");
     if (!fieldPlayers) return players;
     void* playersDict = *(void**)((uintptr_t)manager + mono_field_get_offset(fieldPlayers));
     if (!playersDict) return players;
 
-    // 4. Перебираем Dictionary через Enumerator
     void* klassDict = mono_object_get_class(playersDict);
     void* getValues = mono_class_get_method_from_name(klassDict, "get_Values", 0);
     if (!getValues) return players;
@@ -92,8 +87,8 @@ std::vector<PlayerData> GetPlayers() {
 
         PlayerData pData;
         pData.name = "Player_" + std::to_string(index++);
-        
-        // Получаем Transform и позицию
+        pData.team = localTeam; // Заглушка
+
         void* getTransform = mono_class_get_method_from_name(klassCombatPlayer, "get_transform", 0);
         if (getTransform) {
             void* transformObj = mono_runtime_invoke(getTransform, playerObj, nullptr, &exception);
@@ -105,13 +100,12 @@ std::vector<PlayerData> GetPlayers() {
                     if (posObj) {
                         Vector3* pos = (Vector3*)mono_object_unbox(posObj);
                         pData.position = *pos;
-                        pData.head = { pos->x, pos->y + 1.6f, pos->z }; // Заглушка для головы
+                        pData.head = { pos->x, pos->y + 1.6f, pos->z };
                     }
                 }
             }
         }
 
-        // Получаем данные игрока (HP, Team, IsDead)
         void* getHealth = mono_class_get_method_from_name(klassCombatPlayer, "get_Health", 0);
         if (getHealth) {
             MonoObject* hpObj = (MonoObject*)mono_runtime_invoke(getHealth, playerObj, nullptr, &exception);
@@ -122,11 +116,6 @@ std::vector<PlayerData> GetPlayers() {
             MonoObject* maxHpObj = (MonoObject*)mono_runtime_invoke(getMaxHealth, playerObj, nullptr, &exception);
             if (maxHpObj) pData.maxHealth = *(int*)mono_object_unbox(maxHpObj);
         }
-        void* getTeam = mono_class_get_method_from_name(klassCombatPlayer, "get_Team", 0);
-        if (getTeam) {
-            MonoObject* teamObj = (MonoObject*)mono_runtime_invoke(getTeam, playerObj, nullptr, &exception);
-            if (teamObj) pData.team = *(int*)mono_object_unbox(teamObj);
-        }
         void* getIsDead = mono_class_get_method_from_name(klassCombatPlayer, "get_IsDead", 0);
         if (getIsDead) {
             MonoObject* deadObj = (MonoObject*)mono_runtime_invoke(getIsDead, playerObj, nullptr, &exception);
@@ -136,13 +125,9 @@ std::vector<PlayerData> GetPlayers() {
         if (getName) {
             MonoObject* nameObj = (MonoObject*)mono_runtime_invoke(getName, playerObj, nullptr, &exception);
             if (nameObj) {
-                // Упрощенно, просто ставим имя по индексу
-                // Для реального чтения строки нужен mono_string_to_utf8
+                // Упрощенно, имя не читаем
             }
         }
-
-        // Если команда локального игрока не определена, рисуем всех
-        pData.team = localTeam; // Упрощение: пока не рисуем врагов/союзников
 
         players.push_back(pData);
     }
@@ -176,8 +161,5 @@ Vector2 WorldToScreen(Vector3 worldPos) {
 }
 
 void AimAt(Vector3 targetPos) {
-    // Логика аимбота: нужно получить позицию камеры и вычислить угол.
-    // Но для простоты мы просто перемещаем курсор мыши (это работает в оконном режиме).
-    // В полноэкранном режиме это не сработает. Нужно писать в память (transform.rotation).
-    // Пока оставим заглушку.
+    // Заглушка для аимбота
 }
