@@ -1,0 +1,37 @@
+name: Build DLL
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Setup vcpkg
+      run: |
+        git clone https://github.com/microsoft/vcpkg
+        .\vcpkg\bootstrap-vcpkg.bat
+        .\vcpkg\vcpkg integrate install
+        .\vcpkg\vcpkg install imgui[core,dx11-binding,win32-binding]:x64-windows
+        
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake" -A x64
+        
+    - name: Build
+      run: |
+        cd build
+        cmake --build . --config Release
+        
+    - name: Upload DLL
+      uses: actions/upload-artifact@v4
+      with:
+        name: UnityMonoResearch-DLL
+        path: build/Release/UnityMonoResearch.dll
