@@ -7,7 +7,6 @@ void MainThread() {
     Sleep(5000); 
     if (!InitMono()) return;
 
-    // Запускаем оверлей в отдельном потоке
     std::thread overlayThread(StartOverlay);
     overlayThread.join();
 }
