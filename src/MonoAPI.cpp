@@ -13,6 +13,7 @@ void* (*mono_array_addr)(void*, int) = nullptr;
 void* (*mono_object_unbox)(void*) = nullptr;
 void* (*mono_class_get_field_from_name)(void*, const char*) = nullptr;
 int   (*mono_field_get_offset)(void*) = nullptr;
+char* (*mono_string_to_utf8)(void*) = nullptr; // <-- Добавили
 
 bool InitMono() {
     HMODULE hMono = GetModuleHandleA("mono.dll");
@@ -34,6 +35,9 @@ bool InitMono() {
     mono_object_unbox = (decltype(mono_object_unbox))GetProcAddress(hMono, "mono_object_unbox");
     mono_class_get_field_from_name = (decltype(mono_class_get_field_from_name))GetProcAddress(hMono, "mono_class_get_field_from_name");
     mono_field_get_offset = (decltype(mono_field_get_offset))GetProcAddress(hMono, "mono_field_get_offset");
+    
+    // --- ЗАГРУЖАЕМ ФУНКЦИЮ ---
+    mono_string_to_utf8 = (decltype(mono_string_to_utf8))GetProcAddress(hMono, "mono_string_to_utf8");
 
     return mono_get_root_domain && mono_class_from_name;
 }
