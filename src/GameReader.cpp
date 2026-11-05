@@ -44,10 +44,11 @@ std::vector<PlayerData> GetPlayers() {
                 void* methodGetPosition = mono_class_get_method_from_name(klassTransform, "get_position", 0);
                 
                 if (methodGetPosition) {
-                    Vector3* pos = (Vector3*)mono_object_unbox(mono_runtime_invoke(methodGetPosition, transformObj, nullptr, &exception));
-                    if (pos) {
+                    MonoObject* posObj = (MonoObject*)mono_runtime_invoke(methodGetPosition, transformObj, nullptr, &exception);
+                    if (posObj) {
+                        Vector3* pos = (Vector3*)mono_object_unbox(posObj);
                         pData.position = *pos;
-                        pData.head = { pos->x, pos->y + 1.6f, pos->z }; // Заглушка для головы
+                        pData.head = { pos->x, pos->y + 1.6f, pos->z };
                     }
                 }
             }
@@ -85,7 +86,7 @@ Vector2 WorldToScreen(Vector3 worldPos, int screenWidth, int screenHeight) {
     if (resultObj) {
         Vector3* result = (Vector3*)mono_object_unbox(resultObj);
         screenPos.x = result->x;
-        screenPos.y = screenHeight - result->y; // Инвертируем Y
+        screenPos.y = screenHeight - result->y;
     }
     return screenPos;
 }
