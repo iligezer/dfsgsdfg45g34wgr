@@ -2,24 +2,13 @@
 #include "GameReader.h"
 #include <d3d11.h>
 #include <dxgi.h>
-#include <dxgi1_2.h>
-#include <d3dcompiler.h>
-#include <dxgi.h>
-#include <dxgi1_2.h>
-#include <d3d11.h>
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-#include <MinHook.h> // <-- Убедись, что этот файл существует в vcpkg!
-#include <fstream>
 
 #pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
 
-// Объявление функции (чтобы компилятор не ругался)
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-// Указатели для хука
+// Указатели на оригинальные функции
 typedef HRESULT(__stdcall* Present_t)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
 Present_t oPresent = nullptr;
 WNDPROC oWndProc = nullptr;
@@ -27,32 +16,31 @@ WNDPROC oWndProc = nullptr;
 bool showESP = true;
 bool showLines = true;
 bool aimbotEnabled = false;
-float espColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
 
-// Оригинальный WndProc
+// Объявление функции ImGui
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+// Наш WndProc для перехвата кликов мыши
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
     return CallWindowProc(oWndProc, hWnd, msg, wParam, lParam);
 }
 
-// Хук Present
+// Наш хук Present (рисует поверх игры)
 HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
     static bool init = false;
     if (!init) {
-        // Получаем устройство и контекст
         ID3D11Device* device = nullptr;
         pSwapChain->GetDevice(__uuidof(ID3D11Device), (void**)&device);
         ID3D11DeviceContext* context = nullptr;
         device->GetImmediateContext(&context);
 
-        // Инициализация ImGui
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO(); (void)io;
         ImGui::StyleColorsDark();
         ImGui_ImplWin32_Init(GetActiveWindow());
         ImGui_ImplDX11_Init(device, context);
 
-        // Хук на WndProc (для кликов)
         oWndProc = (WNDPROC)SetWindowLongPtr(GetActiveWindow(), GWLP_WNDPROC, (LONG_PTR)WndProc);
         init = true;
     }
@@ -61,23 +49,19 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-    // --- ESP ЛОГИКА ---
+    // --- ЛОГИКА ESP ---
     auto players = GetPlayers();
     if (showESP) {
         ImDrawList* drawList = ImGui::GetBackgroundDrawList();
-        int screenW = GetSystemMetrics(SM_CXSCREEN);
-        int screenH = GetSystemMetrics(SM_CYSCREEN);
-
+        int sw = GetSystemMetrics(SM_CXSCREEN);
+        int sh = GetSystemMetrics(SM_CYSCREEN);
         for (const auto& p : players) {
-            Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
-            Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
-            if (screenPos.x > 0 && screenPos.y > 0) {
-                char buf[128];
-                sprintf_s(buf, "Player: %s", p.name.c_str());
-                drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 0, 255), buf);
-                if (showLines) {
-                    drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
-                }
+            Vector2 pos = WorldToScreen(p.position, sw, sh);
+            Vector2 head = WorldToScreen(p.head, sw, sh);
+            if (pos.x > 0 && pos.y > 0) {
+                char buf[128]; sprintf_s(buf, "Player: %s", p.name.c_str());
+                drawList->AddText(ImVec2(pos.x, pos.y), IM_COL32(255, 255, 0, 255), buf);
+                if (showLines) drawList->AddLine(ImVec2(pos.x, pos.y), ImVec2(head.x, head.y), IM_COL32(255, 0, 0, 255), 2.0f);
             }
         }
     }
@@ -96,9 +80,8 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
     return oPresent(pSwapChain, SyncInterval, Flags);
 }
 
-// Функция для создания хука
 void StartOverlay() {
-    // Создаем фиктивное устройство, чтобы получить указатель на Present
+    // 1. Создаем фиктивное окно и устройство, чтобы достать VTable
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "DX11Test", NULL };
     RegisterClassEx(&wc);
     HWND hWnd = CreateWindow("DX11Test", "DX11Test", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
@@ -119,16 +102,18 @@ void StartOverlay() {
     D3D_FEATURE_LEVEL featureLevel;
     D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &sd, &d3dSwapChain, &d3dDevice, &featureLevel, &d3dContext);
 
-    // Получаем адрес Present из виртуальной таблицы
+    // 2. Получаем адрес Present (8-й индекс в VTable)
     void** pVTable = *(void***)d3dSwapChain;
-    void* pPresent = pVTable[8]; // Present — 8-й индекс
+    void* pPresent = pVTable[8];
 
-    // Устанавливаем хук
-    MH_Initialize();
-    MH_CreateHook(pPresent, &hkPresent, (void**)&oPresent);
-    MH_EnableHook(pPresent);
+    // 3. Меняем его на наш хук (VirtualProtect для снятия защиты памяти)
+    DWORD oldProtect;
+    VirtualProtect(&pVTable[8], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
+    oPresent = (Present_t)pPresent;
+    pVTable[8] = &hkPresent;
+    VirtualProtect(&pVTable[8], sizeof(void*), oldProtect, &oldProtect);
 
-    // Очистка фиктивного устройства
+    // Очистка фиктивного окна
     d3dSwapChain->Release();
     d3dDevice->Release();
     d3dContext->Release();
