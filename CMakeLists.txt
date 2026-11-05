@@ -5,9 +5,8 @@ set(CMAKE_GENERATOR_PLATFORM "Win32" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
 add_compile_definitions(_MBCS)
 
-# Ищем ImGui и MinHook
 find_package(imgui CONFIG REQUIRED)
-find_package(minhook CONFIG REQUIRED)
+find_package(minhook CONFIG REQUIRED) # <-- Ищем MinHook
 
 add_library(UnityMonoResearch SHARED
     src/main.cpp
@@ -18,7 +17,7 @@ add_library(UnityMonoResearch SHARED
 
 target_link_libraries(UnityMonoResearch PRIVATE 
     imgui::imgui 
-    minhook::minhook
+    minhook::minhook # <-- Линкуем MinHook
     d3d11
     dxgi
 )
