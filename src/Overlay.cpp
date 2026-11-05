@@ -5,6 +5,8 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+#include <fstream>
+#include <string>
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -13,6 +15,12 @@ ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
 IDXGISwapChain* g_pSwapChain = nullptr;
 ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
 HWND g_hWnd = nullptr;
+
+// --- Настройки чита ---
+bool showESP = true;
+bool showLines = true;
+bool aimbotEnabled = false;
+float espColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Красный
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -58,6 +66,10 @@ void CleanupDeviceD3D() {
 }
 
 void StartOverlay() {
+    // Настройка лог-файла
+    std::ofstream logFile("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
+    logFile << "=== Starting Overlay ===" << std::endl;
+
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "Overlay", NULL };
     RegisterClassEx(&wc);
     
@@ -70,6 +82,7 @@ void StartOverlay() {
     UpdateWindow(g_hWnd);
 
     if (!CreateDeviceD3D(g_hWnd)) {
+        logFile << "Failed to create D3D device!" << std::endl;
         CleanupDeviceD3D();
         UnregisterClass("Overlay", wc.hInstance);
         return;
@@ -84,6 +97,7 @@ void StartOverlay() {
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
     bool done = false;
+    int frameCount = 0;
     while (!done) {
         MSG msg;
         while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
@@ -97,21 +111,48 @@ void StartOverlay() {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // --- ESP ЛОГИКА ---
+        // --- ЛОГИКА ESP ---
         auto players = GetPlayers();
-        ImDrawList* drawList = ImGui::GetBackgroundDrawList();
-
-        for (const auto& p : players) {
-            Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
-            Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
-
-            if (screenPos.x > 0 && screenPos.y > 0 && screenPos.x < screenW && screenPos.y < screenH) {
-                char buf[128];
-                sprintf_s(buf, "Player: %s", p.name.c_str());
-                drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 0, 255), buf);
-                drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
+        
+        // Логируем каждые 100 кадров (чтобы не засрать диск)
+        if (frameCount % 100 == 0) {
+            logFile << "Frame " << frameCount << " | Players found: " << players.size() << std::endl;
+            if (players.size() > 0) {
+                logFile << "First player pos: " << players[0].position.x << ", " << players[0].position.y << ", " << players[0].position.z << std::endl;
             }
         }
+        frameCount++;
+
+        if (showESP) {
+            ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+
+            for (const auto& p : players) {
+                Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
+                Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
+
+                if (screenPos.x > 0 && screenPos.y > 0 && screenPos.x < screenW && screenPos.y < screenH) {
+                    // Рисуем текст
+                    char buf[128];
+                    sprintf_s(buf, "Player: %s", p.name.c_str());
+                    drawList->AddText(ImVec2(screenPos.x, screenPos.y), ImGui::ColorConvertFloat4ToU32(*(ImVec4*)espColor), buf);
+
+                    // Рисуем линию от тела к голове
+                    if (showLines) {
+                        drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
+                    }
+                }
+            }
+        }
+
+        // --- МЕНЮ ---
+        ImGui::Begin("Cheat Menu");
+        ImGui::Text("ESP Settings");
+        ImGui::Checkbox("Enable ESP", &showESP);
+        ImGui::Checkbox("Show Lines", &showLines);
+        ImGui::Checkbox("Enable Aimbot", &aimbotEnabled);
+        ImGui::ColorEdit4("ESP Color", espColor);
+        ImGui::Text("Players found: %d", (int)players.size());
+        ImGui::End();
         // -----------------
 
         ImGui::Render();
@@ -122,6 +163,9 @@ void StartOverlay() {
 
         g_pSwapChain->Present(1, 0);
     }
+
+    logFile << "=== Overlay shutting down ===" << std::endl;
+    logFile.close();
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
