@@ -5,8 +5,9 @@ set(CMAKE_GENERATOR_PLATFORM "Win32" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
 add_compile_definitions(_MBCS)
 
+# Ищем статическую версию ImGui (если есть) и MinHook
 find_package(imgui CONFIG REQUIRED)
-find_package(minhook CONFIG REQUIRED) # <-- Ищем MinHook
+find_package(minhook CONFIG REQUIRED)
 
 add_library(UnityMonoResearch SHARED
     src/main.cpp
@@ -15,9 +16,10 @@ add_library(UnityMonoResearch SHARED
     src/Overlay.cpp
 )
 
+# Указываем CMake использовать статическую библиотеку MinHook
 target_link_libraries(UnityMonoResearch PRIVATE 
     imgui::imgui 
-    minhook::minhook # <-- Линкуем MinHook
+    minhook::minhook  # vcpkg сам подставит нужный путь
     d3d11
     dxgi
 )
