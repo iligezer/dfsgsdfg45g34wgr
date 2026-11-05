@@ -1,9 +1,19 @@
+#include "GameReader.h"
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+
+// Лог-файл
+std::ofstream g_log("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
+
 std::vector<PlayerData> GetPlayers() {
     std::vector<PlayerData> players;
     void* domain = mono_get_root_domain();
     if (!domain) return players;
     mono_thread_attach(domain);
 
+    // 1. Загружаем сборку Assembly-CSharp
     void* assembly = mono_domain_assembly_open(domain, "Assembly-CSharp");
     if (!assembly) {
         g_log << "[-] Assembly-CSharp not found" << std::endl;
@@ -11,12 +21,14 @@ std::vector<PlayerData> GetPlayers() {
     }
     void* image = mono_assembly_get_image(assembly);
 
+    // 2. Ищем класс PlayerManager
     void* klassPlayerManager = mono_class_from_name(image, "", "PlayerManager");
     if (!klassPlayerManager) {
         g_log << "[-] PlayerManager class not found" << std::endl;
         return players;
     }
 
+    // 3. Получаем PlayerManager.Instance
     void* methodGetInstance = mono_class_get_method_from_name(klassPlayerManager, "get_Instance", 0);
     if (!methodGetInstance) {
         g_log << "[-] PlayerManager.get_Instance not found" << std::endl;
@@ -30,6 +42,7 @@ std::vector<PlayerData> GetPlayers() {
         return players;
     }
 
+    // 4. Получаем поле Players
     void* fieldPlayers = mono_class_get_field_from_name(klassPlayerManager, "Players");
     if (!fieldPlayers) {
         g_log << "[-] PlayerManager.Players field not found" << std::endl;
@@ -43,12 +56,10 @@ std::vector<PlayerData> GetPlayers() {
         return players;
     }
 
-    // === ХИТРЫЙ ПУТЬ: Читаем внутренние поля Dictionary ===
-    
-    // Получаем класс Dictionary
+    // 5. Получаем внутренние поля Dictionary
     void* klassDict = mono_object_get_class(playersDictObj);
     
-    // Ищем поле "_entries" (в старых версиях Mono оно может называться "entries" или "m_Entries")
+    // Ищем поле "_entries"
     void* fieldEntries = mono_class_get_field_from_name(klassDict, "_entries");
     if (!fieldEntries) fieldEntries = mono_class_get_field_from_name(klassDict, "entries");
     if (!fieldEntries) {
@@ -57,7 +68,7 @@ std::vector<PlayerData> GetPlayers() {
     }
     int entriesOffset = mono_field_get_offset(fieldEntries);
     
-    // Ищем поле "_count" (количество элементов)
+    // Ищем поле "_count"
     void* fieldCount = mono_class_get_field_from_name(klassDict, "_count");
     if (!fieldCount) fieldCount = mono_class_get_field_from_name(klassDict, "count");
     if (!fieldCount) {
@@ -66,9 +77,8 @@ std::vector<PlayerData> GetPlayers() {
     }
     int countOffset = mono_field_get_offset(fieldCount);
 
-    // Читаем длину массива entries
+    // Читаем длину и указатель на массив entries
     int count = *(int*)((uintptr_t)playersDictObj + countOffset);
-    // Читаем указатель на массив entries
     void* entriesArrayObj = *(void**)((uintptr_t)playersDictObj + entriesOffset);
 
     if (!entriesArrayObj || count == 0) {
@@ -76,34 +86,14 @@ std::vector<PlayerData> GetPlayers() {
         return players;
     }
 
-    // В Mono массив структур Entry имеет заголовок. Данные начинаются после 0x18 (или 0x10 в 32-бит).
-    // В 32-битной системе смещение данных в массиве обычно 0x10 (16 байт).
-    // Но проще использовать mono_array_addr_with_size, если он у нас есть.
-    // Если нет, то можно вычислить вручную. 
-    // Каждый Entry в Dictionary<TKey, TValue> занимает: int hashCode (4), int next (4), TKey key (4), TValue value (4) = 16 байт.
-    
-    // В нашем MonoAPI есть mono_array_addr. Используем его.
-    // Но mono_array_addr для массива структур требует знания размера элемента. 
-    // В нашем случае размер Entry = 16 байт.
-    
-    // Однако, для 32-битной игры, заголовок массива занимает 16 байт (2 указателя).
-    // Данные начинаются с +0x10 (16).
-    // И каждый Entry весит 16 байт.
-    
-    // Проходим по count элементов
+    // 6. Проходим по элементам Dictionary
     for (int i = 0; i < count; i++) {
-        // Получаем адрес i-го элемента
-        // Смещение данных: 0x10 (заголовок) + i * 16 (размер Entry)
+        // Смещение данных: 0x10 (заголовок массива) + i * 16 (размер Entry)
         uintptr_t entryAddr = (uintptr_t)entriesArrayObj + 0x10 + (i * 16);
         
         // В структуре Entry поле value идет после hashCode (4) + next (4) + key (4) = 12 байт.
-        // Но из-за выравнивания, value может начинаться с 12 или 16.
-        // Посмотрим на структуру: int hashCode, int next, TKey key, TValue value.
-        // В 32-битной системе: 4 + 4 + 4 + 4 = 16. value на смещении 12 (0xC).
-        
         void* playerObj = *(void**)(entryAddr + 12);
         
-        // Проверяем, что это не null (в Dictionary могут быть пустые ячейки)
         if (playerObj == nullptr) continue;
 
         PlayerData pData;
@@ -129,14 +119,42 @@ std::vector<PlayerData> GetPlayers() {
             }
         }
 
-        // Дополнительно можно получить имя игрока, если нужно
-        // (поле Name в CombatPlayer)
-        // void* fieldName = mono_class_get_field_from_name(klassPlayer, "Name");
-        // ...
-
         players.push_back(pData);
     }
 
     g_log << "[+] Found " << players.size() << " players via Dictionary entries" << std::endl;
     return players;
+}
+
+Vector2 WorldToScreen(Vector3 worldPos, int screenWidth, int screenHeight) {
+    Vector2 screenPos = { 0, 0 };
+    void* domain = mono_get_root_domain();
+    if (!domain) return screenPos;
+    mono_thread_attach(domain);
+
+    void* assembly = mono_domain_assembly_open(domain, "UnityEngine");
+    if (!assembly) return screenPos;
+    void* image = mono_assembly_get_image(assembly);
+    void* klassCamera = mono_class_from_name(image, "UnityEngine", "Camera");
+    if (!klassCamera) return screenPos;
+
+    void* methodGetMain = mono_class_get_method_from_name(klassCamera, "get_main", 0);
+    if (!methodGetMain) return screenPos;
+
+    void* exception = nullptr;
+    void* mainCamera = mono_runtime_invoke(methodGetMain, nullptr, nullptr, &exception);
+    if (!mainCamera) return screenPos;
+
+    void* methodW2S = mono_class_get_method_from_name(klassCamera, "WorldToScreenPoint", 1);
+    if (!methodW2S) return screenPos;
+
+    void* args[1] = { &worldPos };
+    MonoObject* resultObj = (MonoObject*)mono_runtime_invoke(methodW2S, mainCamera, args, &exception);
+    
+    if (resultObj) {
+        Vector3* result = (Vector3*)mono_object_unbox(resultObj);
+        screenPos.x = result->x;
+        screenPos.y = screenHeight - result->y;
+    }
+    return screenPos;
 }
