@@ -1,25 +1,11 @@
 #include <windows.h>
 #include <thread>
-#include <string>
-#include <fstream>   // <-- Вот этой строки не хватало!
 #include "MonoAPI.h"
 #include "Overlay.h"
 
 void MainThread() {
     Sleep(5000); 
-
-    // Создаем папку для логов, если её нет
-    std::string folderPath = "D:\\vs\\kok";
-    std::wstring widePath = std::wstring(folderPath.begin(), folderPath.end());
-    CreateDirectoryW(widePath.c_str(), NULL);
-
-    if (!InitMono()) {
-        // Если Mono не инициализировалась, пишем об этом в лог
-        std::ofstream errLog("D:\\vs\\kok\\cheat_log.txt", std::ios::app);
-        errLog << "[-] InitMono() failed! mono.dll not found or broken." << std::endl;
-        errLog.close();
-        return;
-    }
+    if (!InitMono()) return;
 
     std::thread overlayThread(StartOverlay);
     overlayThread.join();
