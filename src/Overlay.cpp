@@ -10,9 +10,14 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+#include <MinHook.h> // <-- Убедись, что этот файл существует в vcpkg!
 #include <fstream>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dxgi.lib")
+
+// Объявление функции (чтобы компилятор не ругался)
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // Указатели для хука
 typedef HRESULT(__stdcall* Present_t)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
@@ -60,9 +65,12 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
     auto players = GetPlayers();
     if (showESP) {
         ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+        int screenW = GetSystemMetrics(SM_CXSCREEN);
+        int screenH = GetSystemMetrics(SM_CYSCREEN);
+
         for (const auto& p : players) {
-            Vector2 screenPos = WorldToScreen(p.position, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-            Vector2 headPos = WorldToScreen(p.head, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
+            Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
             if (screenPos.x > 0 && screenPos.y > 0) {
                 char buf[128];
                 sprintf_s(buf, "Player: %s", p.name.c_str());
@@ -91,9 +99,9 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 // Функция для создания хука
 void StartOverlay() {
     // Создаем фиктивное устройство, чтобы получить указатель на Present
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"DX11Test", NULL };
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "DX11Test", NULL };
     RegisterClassEx(&wc);
-    HWND hWnd = CreateWindow(L"DX11Test", L"DX11Test", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
+    HWND hWnd = CreateWindow("DX11Test", "DX11Test", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
 
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
@@ -125,5 +133,5 @@ void StartOverlay() {
     d3dDevice->Release();
     d3dContext->Release();
     DestroyWindow(hWnd);
-    UnregisterClass(L"DX11Test", wc.hInstance);
+    UnregisterClass("DX11Test", wc.hInstance);
 }
