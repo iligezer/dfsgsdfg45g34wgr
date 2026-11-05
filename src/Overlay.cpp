@@ -8,24 +8,20 @@
 
 #pragma comment(lib, "d3d11.lib")
 
-// Глобальные переменные для DirectX
 ID3D11Device* g_pd3dDevice = nullptr;
 ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
 IDXGISwapChain* g_pSwapChain = nullptr;
 ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
 HWND g_hWnd = nullptr;
 
-// Внешняя функция из imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-// Оконная процедура
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-// Инициализация DirectX 11
 bool CreateDeviceD3D(HWND hWnd) {
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
@@ -61,19 +57,15 @@ void CleanupDeviceD3D() {
     if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
 }
 
-// Основная функция отрисовки
 void StartOverlay() {
-    // Создаем прозрачное окно поверх игры
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"Overlay", NULL };
     RegisterClassEx(&wc);
     
-    // Получаем размер экрана
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
     g_hWnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED, L"Overlay", L"Overlay", WS_POPUP, 0, 0, screenW, screenH, NULL, NULL, wc.hInstance, NULL);
-    
-    SetLayeredWindowAttributes(g_hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY); // Делаем фон прозрачным
+    SetLayeredWindowAttributes(g_hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
     ShowWindow(g_hWnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hWnd);
 
@@ -83,7 +75,6 @@ void StartOverlay() {
         return;
     }
 
-    // Инициализация ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -106,20 +97,22 @@ void StartOverlay() {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // ==========================================
-        // ЗДЕСЬ МЫ РИСУЕМ ESP
-        // ==========================================
+        // --- ESP ЛОГИКА ---
         auto players = GetPlayers();
         ImDrawList* drawList = ImGui::GetBackgroundDrawList();
 
         for (const auto& p : players) {
-            // Пример: рисуем текст с координатами (пока без перевода в экранные координаты)
-            // В будущем здесь будет WorldToScreen
-            char buf[128];
-            sprintf_s(buf, "Player: %.1f, %.1f, %.1f", p.position.x, p.position.y, p.position.z);
-            drawList->AddText(ImVec2(100, 100), IM_COL32(255, 0, 0, 255), buf);
+            Vector2 screenPos = WorldToScreen(p.position, screenW, screenH);
+            Vector2 headPos = WorldToScreen(p.head, screenW, screenH);
+
+            if (screenPos.x > 0 && screenPos.y > 0 && screenPos.x < screenW && screenPos.y < screenH) {
+                char buf[128];
+                sprintf_s(buf, "Player: %s", p.name.c_str());
+                drawList->AddText(ImVec2(screenPos.x, screenPos.y), IM_COL32(255, 255, 0, 255), buf);
+                drawList->AddLine(ImVec2(screenPos.x, screenPos.y), ImVec2(headPos.x, headPos.y), IM_COL32(255, 0, 0, 255), 2.0f);
+            }
         }
-        // ==========================================
+        // -----------------
 
         ImGui::Render();
         const float clear_color_with_alpha[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -127,7 +120,7 @@ void StartOverlay() {
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-        g_pSwapChain->Present(1, 0); // VSync
+        g_pSwapChain->Present(1, 0);
     }
 
     ImGui_ImplDX11_Shutdown();
