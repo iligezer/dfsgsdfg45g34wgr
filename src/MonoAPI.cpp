@@ -1,43 +1,45 @@
 #include "MonoAPI.h"
+#include <iostream>
 
-void* (*mono_get_root_domain)() = nullptr;
-void* (*mono_thread_attach)(void*) = nullptr;
-void* (*mono_domain_assembly_open)(void*, const char*) = nullptr;
-void* (*mono_assembly_get_image)(void*) = nullptr;
-void* (*mono_class_from_name)(void*, const char*, const char*) = nullptr;
-void* (*mono_class_get_method_from_name)(void*, const char*, int) = nullptr;
-void* (*mono_runtime_invoke)(void*, void*, void**, void**) = nullptr;
-void* (*mono_object_get_class)(void*) = nullptr;
-int   (*mono_array_length)(void*) = nullptr;
-void* (*mono_array_addr)(void*, int) = nullptr;
-void* (*mono_object_unbox)(void*) = nullptr;
-void* (*mono_class_get_field_from_name)(void*, const char*) = nullptr;
-int   (*mono_field_get_offset)(void*) = nullptr;
-char* (*mono_string_to_utf8)(void*) = nullptr; // <-- Добавили
+mono_get_root_domain_t          mono_get_root_domain = nullptr;
+mono_thread_attach_t            mono_thread_attach = nullptr;
+mono_class_from_name_t          mono_class_from_name = nullptr;
+mono_class_get_method_from_name_t mono_class_get_method_from_name = nullptr;
+mono_runtime_invoke_t           mono_runtime_invoke = nullptr;
+mono_class_get_type_t           mono_class_get_type = nullptr;
+mono_type_get_object_t          mono_type_get_object = nullptr;
+mono_array_length_t             mono_array_length = nullptr;
+mono_string_to_utf8_t           mono_string_to_utf8 = nullptr;
+mono_image_loaded_t             mono_image_loaded = nullptr;
+mono_object_get_class_t         mono_object_get_class = nullptr;
 
-bool InitMono() {
-    HMODULE hMono = GetModuleHandleA("mono.dll");
-    if (!hMono) {
-        hMono = LoadLibraryA("mono.dll");
-        if (!hMono) return false;
-    }
+static HMODULE hMono = nullptr;
 
-    mono_get_root_domain = (decltype(mono_get_root_domain))GetProcAddress(hMono, "mono_get_root_domain");
-    mono_thread_attach = (decltype(mono_thread_attach))GetProcAddress(hMono, "mono_thread_attach");
-    mono_domain_assembly_open = (decltype(mono_domain_assembly_open))GetProcAddress(hMono, "mono_domain_assembly_open");
-    mono_assembly_get_image = (decltype(mono_assembly_get_image))GetProcAddress(hMono, "mono_assembly_get_image");
-    mono_class_from_name = (decltype(mono_class_from_name))GetProcAddress(hMono, "mono_class_from_name");
-    mono_class_get_method_from_name = (decltype(mono_class_get_method_from_name))GetProcAddress(hMono, "mono_class_get_method_from_name");
-    mono_runtime_invoke = (decltype(mono_runtime_invoke))GetProcAddress(hMono, "mono_runtime_invoke");
-    mono_object_get_class = (decltype(mono_object_get_class))GetProcAddress(hMono, "mono_object_get_class");
-    mono_array_length = (decltype(mono_array_length))GetProcAddress(hMono, "mono_array_length");
-    mono_array_addr = (decltype(mono_array_addr))GetProcAddress(hMono, "mono_array_addr_with_size");
-    mono_object_unbox = (decltype(mono_object_unbox))GetProcAddress(hMono, "mono_object_unbox");
-    mono_class_get_field_from_name = (decltype(mono_class_get_field_from_name))GetProcAddress(hMono, "mono_class_get_field_from_name");
-    mono_field_get_offset = (decltype(mono_field_get_offset))GetProcAddress(hMono, "mono_field_get_offset");
-    
-    // --- ЗАГРУЖАЕМ ФУНКЦИЮ ---
-    mono_string_to_utf8 = (decltype(mono_string_to_utf8))GetProcAddress(hMono, "mono_string_to_utf8");
+bool LoadMono() {
+    // 32-битная игра -> mono.dll
+    hMono = GetModuleHandleA("mono.dll");
+    if (!hMono) hMono = GetModuleHandleA("mono-2.0-bdwgc.dll");
+    if (!hMono) hMono = GetModuleHandleA("mono-2.0-sgen.dll");
+    if (!hMono) return false;
 
-    return mono_get_root_domain && mono_class_from_name;
+    mono_get_root_domain = (mono_get_root_domain_t)GetProcAddress(hMono, "mono_get_root_domain");
+    mono_thread_attach = (mono_thread_attach_t)GetProcAddress(hMono, "mono_thread_attach");
+    mono_class_from_name = (mono_class_from_name_t)GetProcAddress(hMono, "mono_class_from_name");
+    mono_class_get_method_from_name = (mono_class_get_method_from_name_t)GetProcAddress(hMono, "mono_class_get_method_from_name");
+    mono_runtime_invoke = (mono_runtime_invoke_t)GetProcAddress(hMono, "mono_runtime_invoke");
+    mono_class_get_type = (mono_class_get_type_t)GetProcAddress(hMono, "mono_class_get_type");
+    mono_type_get_object = (mono_type_get_object_t)GetProcAddress(hMono, "mono_type_get_object");
+    mono_array_length = (mono_array_length_t)GetProcAddress(hMono, "mono_array_length");
+    mono_string_to_utf8 = (mono_string_to_utf8_t)GetProcAddress(hMono, "mono_string_to_utf8");
+    mono_image_loaded = (mono_image_loaded_t)GetProcAddress(hMono, "mono_image_loaded");
+    mono_object_get_class = (mono_object_get_class_t)GetProcAddress(hMono, "mono_object_get_class");
+
+    return mono_get_root_domain && mono_thread_attach && mono_class_from_name;
+}
+
+void* FindClass(const char* ns, const char* name) {
+    void* image = mono_image_loaded("Assembly-CSharp");
+    if (!image) image = mono_image_loaded("Assembly-CSharp.dll");
+    if (!image) return nullptr;
+    return mono_class_from_name(image, ns, name);
 }
